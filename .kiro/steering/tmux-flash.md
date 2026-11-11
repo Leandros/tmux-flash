@@ -1,8 +1,9 @@
 # tmux-flash: context for changes
 
-Read before changes in this directory. The `AGENTS.md` rules of the user
-apply; this file does not repeat them. This directory will move to its own
-repository: keep it self-contained (no paths outside it, no `git init` here).
+Read before changes in this repository
+(<https://github.com/Leandros/tmux-flash>). The `AGENTS.md` rules of the user
+apply; this file does not repeat them. The user commits. The user's dotfiles
+install the release archives (`TMUX_FLASH_VERSION` in their `bootstrap.sh`).
 
 ## Purpose
 
@@ -116,13 +117,38 @@ escape sequences). The pure modules do no I/O.
   tmux-flash runs with `LC_ALL=C`, so the tests catch locale problems.
   Socket paths stay short (`tf-<pid>-<n>`): macOS allows 104 bytes and its
   temp directory is long.
-- CI: `.github/workflows/ci.yml` (it runs once this directory is a
-  repository root): fmt and clippy on `ubuntu-24.04`; build and test on
-  `ubuntu-24.04`, `ubuntu-24.04-arm` and `macos-15` (no Intel macOS, by
-  request). tmux from apt or brew; rustup when missing. `actions/checkout`
-  pinned by commit. Check with
-  `docker run --rm -v "$PWD:/repo:ro,z" -w /repo rhysd/actionlint:latest .github/workflows/ci.yml`.
-  The Linux job ran in an `ubuntu:24.04` container; arm and macOS did not
-  run before the move.
+- CI: `.github/workflows/ci.yml`: fmt and clippy on `ubuntu-24.04`; build
+  and test on `ubuntu-24.04`, `ubuntu-24.04-arm` and `macos-15` (no Intel
+  macOS, by request). tmux from apt or brew; rustup when missing.
+  `release.yml` calls it (`workflow_call`). Actions are pinned by commit.
+  Check with
+  `docker run --rm -v "$PWD:/repo:ro,z" -w /repo rhysd/actionlint:latest .github/workflows/ci.yml .github/workflows/release.yml`.
 - `cargo clippy --locked --all-targets -- -D warnings` and
   `cargo fmt --check` must be clean.
+
+## Release
+
+- `release.yml`, `workflow_dispatch` on `master`. The user bumps `version`
+  (and `Cargo.lock`) in a commit first; the workflow stops when
+  `v<version>` exists (`git ls-remote`), and runs `cargo publish --dry-run`
+  before anything is tagged.
+- Archives `tmux-flash-<target>.tar.gz`, the binary at the top with README
+  and licenses: `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`
+  (static: they run on AL2's glibc 2.26), `aarch64-apple-darwin`. The musl
+  targets need no musl-tools (pure Rust; gcc links them).
+- `gh release create v<version> --target $GITHUB_SHA --generate-notes` makes
+  the tag on the tested commit; `SHA256SUMS` and build provenance
+  attestations; then `cargo publish` with the `CARGO_REGISTRY_TOKEN` secret.
+  No minisign signing, by request.
+- cargo-binstall: `[package.metadata.binstall]` with the explicit `.tar.gz`
+  name. binstall looks the crate up on crates.io and takes `repository`
+  from it, so it works only after the publish. On a gnu Linux host it tries
+  the gnu target, then musl (seen in its debug log).
+- License: MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`). `include`
+  in `Cargo.toml` keeps `.kiro/`, `.github/` and `CLAUDE.md` out of the
+  crate.
+- Checked before the first release: the x86_64 musl build job in an
+  `ubuntu:24.04` container (gcc links it; the binary runs on Amazon Linux 2),
+  `cargo publish --dry-run`, and binstall's URL choice (gnu, then musl). A
+  local plain-http server did not work for binstall: reqwest refused it
+  (`Builder` error); test binstall against the real release.

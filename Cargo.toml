@@ -3,7 +3,30 @@ name = "tmux-flash"
 version = "0.1.0"
 edition = "2024"
 description = "Jump labels for tmux panes, with the rules of flash.nvim"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Leandros/tmux-flash"
+readme = "README.md"
+keywords = ["tmux", "flash", "jump", "labels", "terminal"]
+categories = ["command-line-utilities"]
+# The crate holds what builds and tests it; no CI or editor files.
+include = [
+    "/src",
+    "/tests",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE-MIT",
+    "/LICENSE-APACHE",
+    "/clippy.toml",
+    "/rustfmt.toml",
+]
 publish = true
+
+# cargo-binstall: the release archives of .github/workflows/release.yml. On
+# Linux there are only musl builds; binstall tries them after the gnu target.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
 
 [dependencies]
 crossterm = "0.29.0"
