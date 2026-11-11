@@ -11,12 +11,16 @@ use std::fmt;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
-use app::{CLIENT_FLAG, Origin, PANE_FLAG, UI_FLAG};
+use app::{CLIENT_FLAG, MultiPane, Origin, PANE_FLAG, Scope, UI_FLAG, WINDOW_FLAG};
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const VERSION_FLAG: &str = "--version";
-const USAGE: &str = "usage: tmux-flash --pane PANE --client CLIENT\n       tmux-flash --version";
+/// `on` or `off`: overrides `@flash-multi-pane`, so that two key bindings
+/// can search one pane and all panes.
+const MULTI_PANE_FLAG: &str = "--multi-pane";
+const USAGE: &str = "usage: tmux-flash --pane PANE --client CLIENT [--multi-pane on|off]\n       \
+                     tmux-flash --version";
 /// Exit status for a command line error, as getopt tools use.
 const EXIT_USAGE: u8 = 2;
 /// tmux pane ids are `%` and a number.
@@ -26,8 +30,8 @@ const PANE_PREFIX: char = '%';
 /// starts the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Run {
-    Launch,
-    Ui,
+    Launch(MultiPane),
+    Ui(Scope),
 }
 
 /// What the command line asks for.
@@ -45,6 +49,11 @@ enum ArgsError {
     NoValue(&'static str),
     Required(&'static str),
     BadPane(String),
+    BadMultiPane(String),
+    /// A flag that only the popup run takes.
+    UiOnly(&'static str),
+    /// A flag that only the launcher takes.
+    LaunchOnly(&'static str),
 }
 
 impl fmt::Display for ArgsError {
@@ -55,6 +64,11 @@ impl fmt::Display for ArgsError {
             Self::NoValue(flag) => write!(f, "{flag} needs a value"),
             Self::Required(flag) => write!(f, "missing {flag}"),
             Self::BadPane(pane) => write!(f, "not a pane id: {pane}"),
+            Self::BadMultiPane(value) => {
+                write!(f, "{MULTI_PANE_FLAG} takes on or off, not {value}")
+            }
+            Self::UiOnly(flag) => write!(f, "{flag} needs {UI_FLAG}"),
+            Self::LaunchOnly(flag) => write!(f, "{flag} is not for {UI_FLAG}"),
         }
     }
 }
@@ -78,14 +92,18 @@ fn parse_args(args: &[String]) -> Result<Command, ArgsError> {
         return Ok(Command::Version);
     }
 
-    let mut run = Run::Launch;
+    let mut ui = false;
+    let mut scope = Scope::Pane;
+    let mut multi_pane = MultiPane::FromOption;
     let mut pane = None;
     let mut client = None;
     let mut rest = args.iter();
 
     while let Some(arg) = rest.next() {
         match arg.as_str() {
-            UI_FLAG => run = Run::Ui,
+            UI_FLAG => ui = true,
+            WINDOW_FLAG => scope = Scope::Window,
+            MULTI_PANE_FLAG => multi_pane = multi_pane_of(rest.next())?,
             PANE_FLAG => pane = Some(rest.next().ok_or(ArgsError::NoValue(PANE_FLAG))?),
             CLIENT_FLAG => client = Some(rest.next().ok_or(ArgsError::NoValue(CLIENT_FLAG))?),
             _ => return Err(ArgsError::Unknown(arg.clone())),
@@ -99,6 +117,21 @@ fn parse_args(args: &[String]) -> Result<Command, ArgsError> {
         return Err(ArgsError::BadPane(pane.clone()));
     }
 
+    // The launcher selects the scope from --multi-pane and the option; the
+    // popup gets the scope.
+    if !ui && scope == Scope::Window {
+        return Err(ArgsError::UiOnly(WINDOW_FLAG));
+    }
+    if ui && multi_pane != MultiPane::FromOption {
+        return Err(ArgsError::LaunchOnly(MULTI_PANE_FLAG));
+    }
+
+    let run = if ui {
+        Run::Ui(scope)
+    } else {
+        Run::Launch(multi_pane)
+    };
+
     Ok(Command::Run(
         run,
         Origin {
@@ -108,6 +141,12 @@ fn parse_args(args: &[String]) -> Result<Command, ArgsError> {
     ))
 }
 
+fn multi_pane_of(value: Option<&String>) -> Result<MultiPane, ArgsError> {
+    let value = value.ok_or(ArgsError::NoValue(MULTI_PANE_FLAG))?;
+
+    MultiPane::from_value(value).ok_or_else(|| ArgsError::BadMultiPane(value.clone()))
+}
+
 fn is_pane_id(text: &str) -> bool {
     text.strip_prefix(PANE_PREFIX)
         .is_some_and(|number| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()))
@@ -115,8 +154,8 @@ fn is_pane_id(text: &str) -> bool {
 
 fn run_app(run: Run, origin: &Origin) -> ExitCode {
     let result = match run {
-        Run::Launch => app::launch(origin),
-        Run::Ui => app::run_ui(origin),
+        Run::Launch(multi_pane) => app::launch(origin, multi_pane),
+        Run::Ui(scope) => app::run_ui(origin, scope),
     };
 
     let Err(error) = result else {

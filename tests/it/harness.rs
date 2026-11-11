@@ -137,8 +137,14 @@ impl Servers {
     /// Starts tmux-flash as the key binding does, and waits for its prompt.
     /// Without a UTF-8 locale: tmux-flash must not depend on it.
     pub(crate) fn flash(&self) -> Child {
+        self.flash_with(&[])
+    }
+
+    /// As `flash`, with more arguments.
+    pub(crate) fn flash_with(&self, args: &[&str]) -> Child {
         let child = Command::new(BIN)
             .args(["--pane", &self.pane(), "--client", &self.client()])
+            .args(args)
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")
             .env("TMUX_TMPDIR", self.dir.join("in"))
@@ -164,15 +170,49 @@ impl Servers {
 
     /// Mode and copy cursor of the target pane: "copy-mode 11 0".
     pub(crate) fn copy_cursor(&self) -> String {
+        self.copy_cursor_in("t")
+    }
+
+    /// Mode and copy cursor of a pane.
+    pub(crate) fn copy_cursor_in(&self, pane: &str) -> String {
         self.inner(&[
             "display-message",
             "-p",
             "-t",
-            "t",
+            pane,
             "#{pane_mode} #{copy_cursor_x} #{copy_cursor_y}",
         ])
         .trim()
         .to_owned()
+    }
+
+    /// A new pane right of the first one that shows `text`; the first pane
+    /// stays active. Returns the id of the new pane.
+    pub(crate) fn split(&self, text: &str) -> String {
+        let content = self.dir.join("split");
+        fs::write(&content, text).unwrap();
+        let command = format!("cat '{}'; exec cat", content.display());
+
+        let pane = self
+            .inner(&[
+                "split-window",
+                "-d",
+                "-h",
+                "-t",
+                "t",
+                "-P",
+                "-F",
+                "#{pane_id}",
+                &command,
+            ])
+            .trim()
+            .to_owned();
+
+        self.wait_for("the new pane text", |s| {
+            let last = text.lines().last().unwrap_or_default();
+            s.screen().contains(last)
+        });
+        pane
     }
 
     pub(crate) fn wait_for(&self, what: &str, done: impl Fn(&Self) -> bool) {

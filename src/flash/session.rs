@@ -3,7 +3,7 @@
 
 use super::labeler::Labeler;
 use super::matcher::{Match, find_matches};
-use super::screen::{Point, Screen};
+use super::screen::{CURSOR_PANE, Point, Screen};
 
 /// A key, as the session sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,10 +14,11 @@ pub(crate) enum Key {
     Cancel,
 }
 
-/// Where the cursor goes: the row, and the grapheme clusters before the
-/// target on that row.
+/// Where the cursor goes: the pane, the row, and the grapheme clusters
+/// before the target on that row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Target {
+    pub(crate) pane: usize,
     pub(crate) row: usize,
     pub(crate) index: usize,
 }
@@ -32,7 +33,7 @@ pub(crate) enum Step {
 
 #[derive(Debug)]
 pub(crate) struct Session {
-    screen: Screen,
+    screens: Vec<Screen>,
     cursor: Point,
     labeler: Labeler,
     pattern: String,
@@ -42,9 +43,10 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    pub(crate) fn new(screen: Screen, cursor: Point, labels: &str) -> Self {
+    /// One screen per pane; the first one holds the cursor.
+    pub(crate) fn new(screens: Vec<Screen>, cursor: Point, labels: &str) -> Self {
         Self {
-            screen,
+            screens,
             cursor,
             labeler: Labeler::new(labels),
             pattern: String::new(),
@@ -81,16 +83,21 @@ impl Session {
         };
 
         Step::Jump(Target {
+            pane: found.pane(),
             row: found.row(),
             index: found.index(),
         })
     }
 
     fn update(&mut self) -> Step {
-        self.matches = find_matches(&self.screen, &self.pattern);
-        self.labels = self
-            .labeler
-            .assign(&self.matches, self.cursor, self.screen.width());
+        self.matches = self
+            .screens
+            .iter()
+            .enumerate()
+            .flat_map(|(pane, screen)| find_matches(screen, pane, &self.pattern))
+            .collect();
+        let width = self.screens.get(CURSOR_PANE).map_or(0, Screen::width);
+        self.labels = self.labeler.assign(&self.matches, self.cursor, width);
         self.current = next_after(&self.matches, self.cursor);
 
         // flash.nvim ends when a typed character leaves no match.
@@ -105,8 +112,9 @@ impl Session {
         &self.pattern
     }
 
-    pub(crate) const fn screen(&self) -> &Screen {
-        &self.screen
+    /// One per pane, in the order of `new`.
+    pub(crate) fn screens(&self) -> &[Screen] {
+        &self.screens
     }
 
     pub(crate) fn matches(&self) -> &[Match] {
@@ -129,14 +137,16 @@ impl Session {
 mod test;
 
 /// The first match after the cursor, else the first one (flash.nvim wraps).
+/// Only matches in the cursor pane count, as flash.nvim finds the current
+/// match in the current window only.
 fn next_after(matches: &[Match], cursor: Point) -> Option<usize> {
-    if matches.is_empty() {
-        return None;
-    }
-
-    let after = matches
+    let mut own = matches
         .iter()
-        .position(|found| (found.row(), found.col()) > (cursor.row, cursor.col));
+        .enumerate()
+        .filter(|(_, found)| found.pane() == CURSOR_PANE);
+    let (first, _) = own.clone().next()?;
 
-    Some(after.unwrap_or(0))
+    let after = own.find(|(_, found)| (found.row(), found.col()) > (cursor.row, cursor.col));
+
+    Some(after.map_or(first, |(index, _)| index))
 }

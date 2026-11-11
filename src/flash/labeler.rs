@@ -3,14 +3,15 @@
 use std::collections::HashMap;
 
 use super::matcher::Match;
-use super::screen::Point;
+use super::screen::{CURSOR_PANE, Point};
 
 /// Gives labels to matches and keeps lowercase labels on their positions
 /// while the pattern changes.
 #[derive(Debug)]
 pub(crate) struct Labeler {
     pool: Vec<char>,
-    kept: HashMap<(usize, usize), char>,
+    /// Pane, row and grapheme index of a match.
+    kept: HashMap<(usize, usize, usize), char>,
 }
 
 impl Labeler {
@@ -93,17 +94,25 @@ impl Labeler {
     }
 }
 
-const fn position(found: &Match) -> (usize, usize) {
-    (found.row(), found.index())
+const fn position(found: &Match) -> (usize, usize, usize) {
+    (found.pane(), found.row(), found.index())
 }
 
-/// Matches with their index, nearest to the cursor first. The sort is
-/// stable: equal distances keep reading order.
+/// Matches with their index: the cursor pane first, nearest to the cursor
+/// first; then the other panes in reading order, as the flash.nvim labeler
+/// sorts windows. The sort is stable: equal distances keep reading order.
 fn by_distance(matches: &[Match], cursor: Point, width: usize) -> Vec<(usize, &Match)> {
     let origin = cursor.row * width + cursor.col;
     let mut order: Vec<(usize, &Match)> = matches.iter().enumerate().collect();
 
-    order.sort_by_key(|(_, found)| (found.row() * width + found.col()).abs_diff(origin));
+    order.sort_by_key(|(_, found)| {
+        if found.pane() != CURSOR_PANE {
+            return (found.pane(), 0);
+        }
+
+        let distance = (found.row() * width + found.col()).abs_diff(origin);
+        (CURSOR_PANE, distance)
+    });
 
     order
 }

@@ -73,6 +73,53 @@ fn ui_needs_pane_and_client() {
 }
 
 #[test]
+fn window_needs_ui() {
+    let out = run(&["--window", "--pane", "%1", "--client", "c"]);
+
+    assert_eq!(out.status.code(), Some(EXIT_USAGE));
+    assert!(stderr(&out).contains("--window needs --ui"));
+}
+
+#[test]
+fn multi_pane_takes_on_or_off() {
+    let out = run(&["--multi-pane", "yes", "--pane", "%1", "--client", "c"]);
+
+    assert_eq!(out.status.code(), Some(EXIT_USAGE));
+    assert!(stderr(&out).contains("--multi-pane takes on or off"));
+}
+
+#[test]
+fn multi_pane_needs_a_value() {
+    let out = run(&["--pane", "%1", "--client", "c", "--multi-pane"]);
+
+    assert_eq!(out.status.code(), Some(EXIT_USAGE));
+    assert!(stderr(&out).contains("--multi-pane needs a value"));
+}
+
+#[test]
+fn ui_takes_no_multi_pane() {
+    let out = run(&[
+        "--ui",
+        "--multi-pane",
+        "on",
+        "--pane",
+        "%1",
+        "--client",
+        "c",
+    ]);
+
+    assert_eq!(out.status.code(), Some(EXIT_USAGE));
+    assert!(stderr(&out).contains("--multi-pane is not for --ui"));
+}
+
+#[test]
+fn usage_shows_multi_pane() {
+    let out = run(&[]);
+
+    assert!(stderr(&out).contains("[--multi-pane on|off]"));
+}
+
+#[test]
 fn no_tmux_server_is_a_failure() {
     let dir = std::env::temp_dir().join(format!("tmux-flash-cli-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

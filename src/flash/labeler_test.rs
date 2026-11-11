@@ -9,8 +9,19 @@ fn at(row: usize, col: usize) -> Point {
 }
 
 fn matches(text: &str, pattern: &str) -> Vec<Match> {
-    let height = text.lines().count().max(1);
-    find_matches(&Screen::parse(text, WIDTH, height), pattern)
+    panes(&[text], pattern)
+}
+
+/// The matches of all panes, the first pane first, as the session has them.
+fn panes(texts: &[&str], pattern: &str) -> Vec<Match> {
+    texts
+        .iter()
+        .enumerate()
+        .flat_map(|(pane, text)| {
+            let height = text.lines().count().max(1);
+            find_matches(&Screen::parse(text, WIDTH, height), pane, pattern)
+        })
+        .collect()
 }
 
 fn label(labels: &str, text: &str, pattern: &str, cursor: Point) -> Vec<Option<char>> {
@@ -107,4 +118,51 @@ fn kept_label_goes_if_continued() {
 #[test]
 fn no_matches_no_labels() {
     assert_eq!(label("ab", "x\n", "z", at(0, 0)), []);
+}
+
+#[test]
+fn cursor_pane_comes_first() {
+    // The other pane's match is in the cursor's row and column, but flash.nvim
+    // labels the current window first.
+    let found = panes(&["xxxxxxxxxxal\n", "al\n"], "al");
+
+    assert_eq!(
+        Labeler::new("cd").assign(&found, at(0, 0), WIDTH),
+        [Some('c'), Some('d')]
+    );
+}
+
+#[test]
+fn other_panes_in_reading_order() {
+    // Distance counts in the cursor pane only.
+    let found = panes(&["\n", "al xxxxxxxxx al\n"], "al");
+
+    assert_eq!(
+        Labeler::new("cd").assign(&found, at(0, 14), WIDTH),
+        [Some('c'), Some('d')]
+    );
+}
+
+#[test]
+fn skip_rule_spans_panes() {
+    // "c" follows the match in the other pane: c and C are skipped.
+    let found = panes(&["ax\n", "ac\n"], "a");
+
+    assert_eq!(
+        Labeler::new("cd").assign(&found, at(0, 0), WIDTH),
+        [Some('d'), Some('D')]
+    );
+}
+
+#[test]
+fn kept_label_is_per_pane() {
+    let mut labeler = Labeler::new("cd");
+
+    let first = labeler.assign(&panes(&["\n", "al\n"], "a"), at(0, 0), WIDTH);
+
+    // The same row and index in the cursor pane is another position.
+    let second = labeler.assign(&panes(&["al\n", "al\n"], "a"), at(0, 0), WIDTH);
+
+    assert_eq!(first, [Some('c')]);
+    assert_eq!(second, [Some('d'), Some('c')]);
 }

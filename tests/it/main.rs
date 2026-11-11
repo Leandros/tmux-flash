@@ -13,3 +13,4 @@
 mod cli;
 mod harness;
 mod jump;
+mod panes;

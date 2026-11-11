@@ -4,10 +4,11 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::screen::Screen;
 
-/// A match: its start, its length in grapheme clusters, and the cluster that
-/// follows it on the same row.
+/// A match: its pane, its start, its length in grapheme clusters, and the
+/// cluster that follows it on the same row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Match {
+    pane: usize,
     row: usize,
     index: usize,
     col: usize,
@@ -16,6 +17,10 @@ pub(crate) struct Match {
 }
 
 impl Match {
+    pub(crate) const fn pane(&self) -> usize {
+        self.pane
+    }
+
     pub(crate) const fn row(&self) -> usize {
         self.row
     }
@@ -42,7 +47,7 @@ impl Match {
 /// All matches in reading order, overlapping ones too. A pattern without
 /// uppercase letters ignores case, as `ignorecase` and `smartcase` in the
 /// user's nvim.
-pub(crate) fn find_matches(screen: &Screen, pattern: &str) -> Vec<Match> {
+pub(crate) fn find_matches(screen: &Screen, pane: usize, pattern: &str) -> Vec<Match> {
     let needle: Vec<&str> = pattern.graphemes(true).collect();
     if needle.is_empty() {
         return Vec::new();
@@ -71,6 +76,7 @@ pub(crate) fn find_matches(screen: &Screen, pattern: &str) -> Vec<Match> {
             };
 
             matches.push(Match {
+                pane,
                 row,
                 index,
                 col: first.col(),

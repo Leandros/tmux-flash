@@ -5,10 +5,20 @@ const WIDTH: usize = 40;
 const TEXT: &str = "alpha alpine\n";
 
 fn session(text: &str, cursor: Point, labels: &str) -> Session {
-    let height = text.lines().count().max(1) + 1;
-    let screen = Screen::parse(text, WIDTH, height);
+    panes(&[text], cursor, labels)
+}
 
-    Session::new(screen, cursor, labels)
+/// One screen per text; the first one holds the cursor.
+fn panes(texts: &[&str], cursor: Point, labels: &str) -> Session {
+    let screens = texts
+        .iter()
+        .map(|text| {
+            let height = text.lines().count().max(1) + 1;
+            Screen::parse(text, WIDTH, height)
+        })
+        .collect();
+
+    Session::new(screens, cursor, labels)
 }
 
 fn at(row: usize, col: usize) -> Point {
@@ -24,7 +34,11 @@ fn typed(session: &mut Session, text: &str) -> Step {
 }
 
 fn jump(row: usize, index: usize) -> Step {
-    Step::Jump(Target { row, index })
+    jump_in(0, row, index)
+}
+
+fn jump_in(pane: usize, row: usize, index: usize) -> Step {
+    Step::Jump(Target { pane, row, index })
 }
 
 #[test]
@@ -136,4 +150,42 @@ fn cancel_exits() {
     let _ = typed(&mut s, "al");
 
     assert_eq!(s.step(Key::Cancel), Step::Exit);
+}
+
+#[test]
+fn label_jumps_into_other_pane() {
+    let mut s = panes(&["beta\n", "x alpha\n"], at(0, 0), LABELS);
+    let _ = typed(&mut s, "al");
+
+    // After "a": beta c, then the other pane in reading order: alpha t,
+    // alpha's last a i.
+    assert_eq!(s.labels(), [Some('t')]);
+    assert_eq!(s.step(Key::Char('t')), jump_in(1, 0, 2));
+}
+
+#[test]
+fn match_in_other_pane_continues() {
+    let mut s = panes(&["beta\n", "alpha\n"], at(0, 0), LABELS);
+
+    assert_eq!(typed(&mut s, "al"), Step::Continue);
+}
+
+#[test]
+fn enter_stays_in_cursor_pane() {
+    // flash.nvim: the current match is in the current window only. The other
+    // pane's match is on a later row than the cursor.
+    let mut s = panes(&[TEXT, "x\nalpha\n"], at(0, 7), LABELS);
+    let _ = typed(&mut s, "al");
+
+    assert_eq!(s.current(), Some(0));
+    assert_eq!(s.step(Key::Enter), jump(0, 0));
+}
+
+#[test]
+fn enter_needs_cursor_pane_match() {
+    let mut s = panes(&["beta\n", "alpha\n"], at(0, 0), LABELS);
+    let _ = typed(&mut s, "al");
+
+    assert_eq!(s.current(), None);
+    assert_eq!(s.step(Key::Enter), Step::Exit);
 }

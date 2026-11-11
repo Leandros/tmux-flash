@@ -6,7 +6,7 @@ fn find(text: &str, pattern: &str) -> Vec<(usize, usize, usize)> {
     let height = text.lines().count().max(1);
     let screen = Screen::parse(text, WIDTH, height);
 
-    find_matches(&screen, pattern)
+    find_matches(&screen, 0, pattern)
         .iter()
         .map(|m| (m.row(), m.index(), m.len()))
         .collect()
@@ -45,7 +45,7 @@ fn no_match_across_rows() {
 #[test]
 fn cell_column_after_wide_text() {
     let screen = Screen::parse("漢字 alpha\n", WIDTH, 1);
-    let matches = find_matches(&screen, "al");
+    let matches = find_matches(&screen, 0, "al");
 
     assert_eq!(matches.len(), 1);
     assert_eq!((matches[0].index(), matches[0].col()), (3, 5));
@@ -59,8 +59,16 @@ fn wide_pattern_matches() {
 #[test]
 fn next_is_the_cluster_after() {
     let screen = Screen::parse("alpha al\n", WIDTH, 1);
-    let matches = find_matches(&screen, "al");
+    let matches = find_matches(&screen, 0, "al");
 
     assert_eq!(matches[0].next(), Some("p"));
     assert_eq!(matches[1].next(), None);
+}
+
+#[test]
+fn match_knows_its_pane() {
+    let screen = Screen::parse("alpha\n", WIDTH, 1);
+    let matches = find_matches(&screen, 2, "al");
+
+    assert_eq!(matches[0].pane(), 2);
 }

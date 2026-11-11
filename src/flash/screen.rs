@@ -3,6 +3,9 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+/// The pane of a session that holds the cursor: the first one.
+pub(crate) const CURSOR_PANE: usize = 0;
+
 /// A cell position: row and column of the pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Point {

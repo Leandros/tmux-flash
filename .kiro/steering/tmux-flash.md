@@ -36,8 +36,23 @@ tmux-jump plugin (Ruby, one character, word starts only).
   removes the last one; Enter jumps to the current match; Escape and Ctrl+C
   cancel. A character that leaves no match ends without a jump.
 - Jump target: the first grapheme of the match.
+- Other panes (flash `multi_window`), only with `--multi-pane on`, or
+  without the flag with `@flash-multi-pane on` (off by default, by request;
+  flash turns it on by default). The flag lets two key bindings search one
+  pane and all panes:
+  - The session has one screen per pane: the target pane first
+    (`CURSOR_PANE`), then the others in pane index order.
+  - Order: the target pane by distance; the other panes in reading order,
+    one pane after the other (flash's labeler sorts the current window
+    first, then the other windows by window id; distance counts in the
+    current window only).
+  - Skip rule and reuse span all panes. A reuse position is pane, row and
+    grapheme index.
+  - Current match: in the target pane only (flash `M:find` uses the matcher
+    of the current window). Without one, Enter ends without a jump.
+  - A character ends the session only when no pane has a match.
 - Not done: regex and fuzzy modes, max_length, autojump, labels before the
-  match, other panes (flash multi_window).
+  match.
 
 ## Design
 
@@ -47,6 +62,36 @@ tmux-jump plugin (Ruby, one character, word starts only).
   -w W -h H`, which runs `tmux-flash --ui ...`. `-w` and `-h` do not take
   formats ("height invalid"). The popup covers the pane exactly (tested:
   split panes, zoomed pane, status and pane-border status at the top).
+- Window scope: the launcher reads the pane and window sizes,
+  `window_panes`, `window_zoomed_flag`, `window_bigger` and
+  `@flash-multi-pane` in one `display-message` (`Placement`), and covers the
+  window only with multi-pane on (`MultiPane`: `--multi-pane on|off`, else
+  the option), more than one pane, not zoomed, and not bigger than the
+  client (a part of it shows; the popup failed with "height too large"). It
+  gives the popup `--ui --window`; `--window` without `--ui`, and
+  `--multi-pane` with `--ui`, are usage errors. Popup position from the
+  pane:
+  `-x '#{e|-:#{popup_pane_left},#{pane_left}}'`,
+  `-y '#{e|+:#{popup_pane_bottom},#{e|-:#{e|-:#{window_height},#{pane_top}},#{pane_height}}}'`.
+  `popup_pane_top` is no pane top: with the status line at the top a popup
+  from it was one row too high. Tested exact: status at the top and bottom,
+  two status lines, pane-border status at the top and bottom, window smaller
+  than the client.
+- Window view: `list-panes -t P -F` with id, left, top, window size, then
+  the state format; then one tmux call with a `capture-pane` per pane
+  (`;`). capture-pane prints each row of the range, empty ones too, so the
+  output splits by pane heights.
+- `PaneMode::Other` (`tree-mode`, `view-mode`, ...): tmux 3.5a capture-pane
+  reads the screen under the mode (no `-M`). Other panes in such a mode are
+  blank, with no labels. The target pane keeps its text and gets copy mode
+  on a jump, as when it is alone.
+- Jump into another pane: `select-pane -t P` first, in the same tmux call.
+- The frame (`paint`, `Layout`): each pane row at its offset, spaces fill a
+  pane row before a border (not after the last pane: the erase does that),
+  border cells are box-drawing lines that join the border cells next to
+  them, in the backdrop color. Pane-border status lines show as lines.
+  Widths by `unicode-width`, the rule of `Screen`: a cluster that tmux
+  measures otherwise moves the rest of its row.
 - Panes do not redraw while a popup is open. The popup gets raw keys: Enter
   `0d`, Backspace `7f`, Escape `1b` alone, Ctrl+C `03`.
 - Jump: one tmux call: `copy-mode` (normal mode only), `top-line`,
@@ -68,7 +113,9 @@ tmux-jump plugin (Ruby, one character, word starts only).
   - light: backdrop fg `#93a1a1`; match fg `#fdf6e3` bg `#b58900`; current
     the same, bold; label fg `#fdf6e3` bg `#d33682` bold.
   The backdrop keeps the terminal background.
-- Time to popup: about 23 ms (tmux 3.5a, each tmux call about 5 ms).
+- Time to popup: about 23 ms (tmux 3.5a, each tmux call about 5 ms). The
+  window scope makes as many tmux calls: 26 ms with three panes (debug
+  build).
 - Frames: `term` writes only the rows that changed, each ended with an
   erase to the line end. A clear of the whole popup before each frame made
   tmux show a blank popup between pty reads (a frame is about 30 kB with
@@ -80,8 +127,8 @@ tmux-jump plugin (Ruby, one character, word starts only).
 - Every tmux call has `-u`: without a UTF-8 locale (containers, CI, a bare
   `run-shell`) tmux writes tabs and non-ASCII text of its output as `_`, and
   the tab-separated state did not parse ("unexpected tmux output: 80_23").
-- Options come in the state format (`#{@color-mode}`, `#{@flash-labels}`):
-  no extra tmux call.
+- Options come in the state format (`#{@color-mode}`, `#{@flash-labels}`),
+  `@flash-multi-pane` in the placement format: no extra tmux call.
 
 ## Layers
 
@@ -114,6 +161,10 @@ escape sequences). The pure modules do no I/O.
 - Expected labels follow reuse: they come from the first character typed
   ("a"), and stay when the pattern grows ("al"). Compute them that way.
 - `Servers::start_with(text, conf)` adds inner config lines (an option).
+  `Servers::split(text)` adds a pane on the right with `split-window -d`
+  (the first pane stays active); `copy_cursor_in(pane)` reads any pane;
+  `flash_with(args)` starts tmux-flash with more arguments.
+  Multi-pane tests are in `tests/it/panes.rs`.
   tmux-flash runs with `LC_ALL=C`, so the tests catch locale problems.
   Socket paths stay short (`tf-<pid>-<n>`): macOS allows 104 bytes and its
   temp directory is long.
