@@ -3,7 +3,7 @@ name = "tmux-flash"
 version = "0.1.0"
 edition = "2024"
 description = "Jump labels for tmux panes, with the rules of flash.nvim"
-publish = false
+publish = true
 
 [dependencies]
 crossterm = "0.29.0"
